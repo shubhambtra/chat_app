@@ -10,7 +10,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Initialize OpenAI client (NO hardcoded key)
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+api_key = os.getenv("OPENAI_API_KEY")
+
+if not api_key:
+    raise RuntimeError(
+        "OPENAI_API_KEY is not set. Please configure it in Railway Variables."
+    )
+
+client = OpenAI(api_key=api_key)
+
 
 app = Flask(__name__)
 
