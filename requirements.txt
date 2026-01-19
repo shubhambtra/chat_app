@@ -1,6 +1,9 @@
 flask
+gunicorn
 openai
 faiss-cpu
 numpy
 python-dotenv
+
+
 
