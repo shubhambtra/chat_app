@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Customer Chat</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gray-100 h-screen flex flex-col">
+
+    <div class="flex-1 p-4" id="chatBox"></div>
+
+    <div class="p-4 bg-white flex">
+        <input id="msg" class="flex-1 border p-2" placeholder="Type message..." />
+        <button onclick="send()" class="bg-blue-500 text-white px-4">Send</button>
+    </div>
+
+    <script>
+        let lastAnalyzedCustomerMessage = "";
+
+        function load() {
+            fetch("/messages")
+                .then(r => r.json())
+                .then(data => {
+                    chatBox.innerHTML = "";
+
+                    let latestCustomerMessage = "";
+
+                    data.forEach(m => {
+                        chatBox.innerHTML += `<div><b>${m.sender}:</b> ${m.text}</div>`;
+                        if (m.sender === "Customer") {
+                            latestCustomerMessage = m.text;
+                        }
+                    });
+
+                    // ✅ CALL AI ONLY ON NEW CUSTOMER MESSAGE
+                    if (latestCustomerMessage &&
+                        latestCustomerMessage !== lastAnalyzedCustomerMessage) {
+
+                        lastAnalyzedCustomerMessage = latestCustomerMessage;
+
+                        fetch("/analyze", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ message: latestCustomerMessage })
+                        })
+                        
+                            .then(r => r.json())
+                            .then(a => {
+                                suggested.value = a.suggested_reply;
+                                interest.innerText = a.interest_level;
+                                conversion.innerText = a.conversion_percentage;
+                                objection.innerText = a.objection;
+                                next.innerText = a.next_action;
+                                reply.value = a.suggested_reply; 
+                            });
+                    }
+                });
+        }
+
+
+        function send() {
+            fetch("/send_customer", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message: msg.value })
+            }).then(() => {
+                msg.value = "";
+                load();
+            });
+        }
+
+        setInterval(load, 2000);
+    </script>
+
+</body>
+
+</html>

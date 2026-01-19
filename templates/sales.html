@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sales Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="h-screen flex">
+
+<!-- AI PANEL -->
+<div class="w-1/3 p-4 bg-white border-r">
+    <h2 class="font-bold mb-3">AI Sales Coach</h2>
+
+    <label class="text-sm">Suggested Reply</label>
+    <textarea id="suggested" class="w-full border p-2 mb-3"></textarea>
+
+    <p>Interest: <span id="interest"></span></p>
+    <p>Conviction: <span id="conversion"></span>%</p>
+    <p>Objection: <span id="objection"></span></p>
+    <p>Next Action: <span id="next"></span></p>
+</div>
+
+<!-- CHAT -->
+<div class="flex-1 flex flex-col">
+    <div id="chatBox" class="flex-1 p-4 overflow-y-auto"></div>
+
+    <div class="p-4 bg-white flex">
+        <input id="reply" class="flex-1 border p-2" />
+        <button onclick="sendSales()" class="bg-green-500 text-white px-4 ml-2">
+            Send
+        </button>
+    </div>
+</div>
+
+<script>
+let lastAnalyzedCustomerMessage = "";
+let analysisLocked = false;
+
+function load() {
+    fetch("/messages")
+    .then(r => r.json())
+    .then(data => {
+        chatBox.innerHTML = "";
+        let latestCustomerMessage = "";
+
+        data.forEach(m => {
+            chatBox.innerHTML += `<div><b>${m.sender}:</b> ${m.text}</div>`;
+            if (m.sender === "Customer") {
+                latestCustomerMessage = m.text;
+            }
+        });
+
+        // detect new customer message
+        if (latestCustomerMessage &&
+            latestCustomerMessage !== lastAnalyzedCustomerMessage) {
+            lastAnalyzedCustomerMessage = latestCustomerMessage;
+            analysisLocked = false;
+        }
+
+        // analyze ONLY ONCE
+        if (latestCustomerMessage && !analysisLocked) {
+            analysisLocked = true;
+
+            fetch("/analyze", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({message: latestCustomerMessage})
+            })
+            .then(r => r.json())
+            .then(a => {
+                suggested.value = a.suggested_reply;
+                interest.innerText = a.interest_level;
+                conversion.innerText = a.conversion_percentage;
+                objection.innerText = a.objection;
+                next.innerText = a.next_action;
+                reply.value = a.suggested_reply;
+            });
+        }
+    });
+}
+
+function sendSales() {
+    if (!reply.value) return;
+
+    fetch("/send_sales", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({message: reply.value})
+    });
+
+    reply.value = "";
+}
+
+setInterval(load, 2000);
+load();
+</script>
+
+</body>
+</html>
