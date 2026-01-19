@@ -2,12 +2,15 @@ from flask import Flask, render_template, request, jsonify
 from openai import OpenAI
 import faiss
 import numpy as np
-import json, os
+import json
+import os
 from dotenv import load_dotenv
 
+# Load environment variables
 load_dotenv()
 
-client = OpenAI(api_key="sk-proj-P4hLn5-VOgz4N_kowHMGMqaSX8KHYbDUtPNIXmR6mGpo8Z0nvarZDSgtPa_1da0yMTZWSR4KlaT3ssssssssBlbkFJXTz3SpQT1QgEt58lIc64MpssssssssssssssssodHVxRfLhrLI63fHzUw8qkILzYoZN53P7ELEpr8ReFyeQHRjyc4Asssss")
+# Initialize OpenAI client (NO hardcoded key)
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 app = Flask(__name__)
 
@@ -27,36 +30,36 @@ os.makedirs("data", exist_ok=True)
 index = None
 documents = []
 
-# SAFE LOAD (ONLY IF VALID)
+# Load existing vectors safely
 if os.path.exists(VECTOR_PATH) and os.path.exists(DOC_PATH):
     try:
         index = faiss.read_index(VECTOR_PATH)
         with open(DOC_PATH, "r") as f:
             documents = json.load(f)
         print("✅ Vector index loaded")
-    except:
-        print("⚠️ Corrupt index detected, rebuilding")
+    except Exception as e:
+        print("⚠️ Failed to load index:", e)
         index = None
         documents = []
-
 
 # ===============================
 # ROUTES
 # ===============================
+@app.route("/")
+def home():
+    return "Chat App is running"
+
 @app.route("/customer")
 def customer():
     return render_template("customer.html")
-
 
 @app.route("/sales")
 def sales():
     return render_template("sales.html")
 
-
 @app.route("/upload")
 def upload():
     return render_template("upload.html")
-
 
 @app.route("/send_customer", methods=["POST"])
 def send_customer():
@@ -64,21 +67,18 @@ def send_customer():
     chat_messages.append({"sender": "Customer", "text": msg})
     return jsonify({"status": "ok"})
 
-
 @app.route("/send_sales", methods=["POST"])
 def send_sales():
     msg = request.json.get("message")
     chat_messages.append({"sender": "Sales", "text": msg})
     return jsonify({"status": "ok"})
 
-
 @app.route("/messages")
 def messages():
     return jsonify(chat_messages)
 
-
 # ===============================
-# DOCUMENT UPLOAD (SAFE)
+# DOCUMENT UPLOAD
 # ===============================
 @app.route("/upload_doc", methods=["POST"])
 def upload_doc():
@@ -88,82 +88,62 @@ def upload_doc():
     if not text:
         return "No content provided", 400
 
-    # Create embedding (ONE TIME)
-    emb = client.embeddings.create(
+    embedding = client.embeddings.create(
         model="text-embedding-3-small",
         input=text
     ).data[0].embedding
 
-    vec = np.array([emb]).astype("float32")
+    vec = np.array([embedding]).astype("float32")
 
-    # CREATE INDEX IF FIRST DOC
     if index is None:
         index = faiss.IndexFlatL2(len(vec[0]))
-        print("🆕 New FAISS index created")
 
     index.add(vec)
     documents.append(text)
 
-    # SAVE SAFELY
     faiss.write_index(index, VECTOR_PATH)
     with open(DOC_PATH, "w") as f:
         json.dump(documents, f)
 
-    return "✅ Document stored successfully"
-
+    return "✅ Document uploaded"
 
 # ===============================
-# VECTOR SEARCH (NO CHATGPT)
+# VECTOR ANALYSIS
 # ===============================
 @app.route("/analyze", methods=["POST"])
 def analyze():
-    message = request.json.get("message").lower().strip()
+    message = request.json.get("message", "").lower().strip()
 
-    # ===============================
-    # 1️⃣ INTENT FILTER (NO VECTOR)
-    # ===============================
-    greetings = ["hi", "hello", "hey", "good morning", "good evening"]
+    if not message:
+        return jsonify({"error": "Empty message"}), 400
+
+    greetings = ["hi", "hello", "hey"]
     if message in greetings:
         return jsonify({
-            "suggested_reply": "Hello! How can I help you today?",
+            "suggested_reply": "Hello! How can I help you?",
             "interest_level": "Low",
             "conversion_percentage": 10,
             "objection": "None",
             "next_action": "Ask needs"
         })
 
-    if len(message) < 5:
+    if index is None or not documents:
         return jsonify({
-            "suggested_reply": "Could you please tell me more about what you’re looking for?",
-            "interest_level": "Low",
-            "conversion_percentage": 15,
-            "objection": "Unclear intent",
-            "next_action": "Probe further"
-        })
-
-    # ===============================
-    # 2️⃣ VECTOR SEARCH (MEANINGFUL)
-    # ===============================
-    if index is None or len(documents) == 0:
-        return jsonify({
-            "suggested_reply": "Our team will get back to you shortly.",
+            "suggested_reply": "No data available yet.",
             "interest_level": "Low",
             "conversion_percentage": 0,
             "objection": "No data",
             "next_action": "Upload documents"
         })
 
-    # Embed question
-    q_emb = client.embeddings.create(
+    q_embedding = client.embeddings.create(
         model="text-embedding-3-small",
         input=message
     ).data[0].embedding
 
-    q_vec = np.array([q_emb]).astype("float32")
+    q_vec = np.array([q_embedding]).astype("float32")
+    D, I = index.search(q_vec, 1)
 
-    D, I = index.search(q_vec, k=1)
-
-    # ⚠️ SIMILARITY THRESHOLD
     if D[0][0] > 1.2:
         return jsonify({
             "suggested_reply": "Could you clarify your question?",
@@ -183,7 +163,9 @@ def analyze():
         "next_action": "Proceed"
     })
 
-
-
+# ===============================
+# ENTRY POINT (Railway-safe)
+# ===============================
 if __name__ == "__main__":
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
